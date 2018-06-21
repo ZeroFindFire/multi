@@ -20,6 +20,18 @@ func, attrs, remain, callback
 		response 为函数func的返回值
 		succeed用来判断函数是否运行成功，如果func中抛出异常，则succeed为False
 
+类BaseMulti是格式定义，实际使用需要继承或者使用类Multi
+主要参数与函数有：
+max_threads: 一次运行的最多线程数
+init_objs: 初始化
+init_push: 设置初始运行的多线程函数
+push: 运行中添加其它函数（将创建线程运行）
+deal: 默认回调函数，可改写
+clean: 所有线程函数结束后调用
+work(asyn): 开始运行，参数asyn=True时，将在主线程进行运行管理与调度程序，运行结束后返回clean的返回值
+					参数asyn=True时，将创建新线程进行运行管理与调度程序，返回None
+
+
 """
 
 import time
