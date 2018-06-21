@@ -30,7 +30,13 @@ class BaseMulti(object):
 	# 
 	def resume(self):
 		pass
-	
+
+	def init_objs(self):
+		self.initobjs = []
+
+	def init_push(self, func, attrs, remain = None, callback = None):
+		self.initobjs.append([func,attrs,remain,callback])
+
 	# append url to spider
 	def push(self, func, attrs, remain = None, callback = None):
 		pass

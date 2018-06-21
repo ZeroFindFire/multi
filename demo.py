@@ -4,12 +4,11 @@ import requests
 class Test(multi.Multi):
 	def __init__(self):
 		multi.Multi.__init__(self)
-		self.initobjs =  []
+		self.init_objs()
 		list_attrs = ["http://www.baidu.com"]
 		map_attrs = {"timeout":10}
 		attrs = self.attrs(list_attrs,map_attrs)
-		obj = [requests.get,attrs,0]
-		self.initobjs.append(obj)
+		self.init_push(requests.get,attrs,0,self.deal)
 	def deal(self, response, remain, succeed):
 		# succeed == Flase if Excepitoin happen
 		print "remain:",remain
@@ -21,6 +20,9 @@ class Test(multi.Multi):
 		if remain == 0:
 			attrs = self.attrs(["http://www.baidu.com"])
 			self.push(requests.get, attrs, 1, callback = self.deal)
+
+			attrs = self.attrs(["http://fanyi.baidu.com/"])
+			self.push(requests.get, attrs, 2)
 	def clean(self):
 		print "work done"
 		return 123
