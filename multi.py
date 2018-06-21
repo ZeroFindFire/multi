@@ -229,7 +229,6 @@ class Multi(BaseMulti):
 		return out
 
 	def inner_run(self):
-		action = self.action
 		self.__initz()
 		self.__threads = []
 		global sleep_time
