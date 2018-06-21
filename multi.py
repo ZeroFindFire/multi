@@ -31,7 +31,6 @@ clean: 所有线程函数结束后调用
 work(asyn): 开始运行，参数asyn=True时，将在主线程进行运行管理与调度程序，运行结束后返回clean的返回值
 					参数asyn=True时，将创建新线程进行运行管理与调度程序，返回None
 
-
 """
 
 import time
@@ -131,8 +130,8 @@ class SingleThread(threading.Thread):
 			succeed = True
 		except Exception,e:
 			if self.show:
-				print "ERROR in thread run:",e
-				print "ORDER:",order
+				print("ERROR in thread run:",e)
+				print("ORDER:",order)
 				import traceback
 				traceback.print_exc()
 			succeed = False
@@ -140,12 +139,12 @@ class SingleThread(threading.Thread):
 		try:
 			self.callback(rp,self.remain,succeed)
 		except Exception,e:
-			print "There are Error in your codes:", e
+			print("There are Error in your codes:", e)
 			try:
 				import traceback
 				traceback.print_exc()
 			except:
-				print "Can't use module traceback to show details"
+				print("Can't use module traceback to show details")
 		self.__done = True
 	
 class MainThread(threading.Thread):
@@ -284,12 +283,12 @@ class Multi(BaseMulti):
 			for obj in self.__run_urls:
 				if self.seperate_time>0:
 					if self.show:
-						print "sleep for seperate_time"
+						print("sleep for seperate_time")
 					time.sleep(self.seperate_time)
 				func, attrs, remain, callback= obj 
 				while threading.active_count() >= self.max_threads:
 					if self.show:
-						print "sleep for active_count()"
+						print("sleep for active_count()")
 					if self.sleep_time is not None:
 						time.sleep(self.sleep_time)
 					else:
@@ -306,7 +305,7 @@ class Multi(BaseMulti):
 							newthread.start()
 						except Exception,e:
 							if self.show:
-								print "create or start thread error:",e,e.message
+								print("create or start thread error:",e,e.message)
 							newthread=None 
 							time.sleep(sleep_time)
 					if newthread is not None:
@@ -322,11 +321,11 @@ class Multi(BaseMulti):
 		try:
 			return self.clean()
 		except Exception, e:
-			print "Error code in your spider's function clean:", e 
+			print("Error code in your spider's function clean:", e )
 			try:
 				import traceback
 				traceback.print_exc()
 			except:
-				print "Can't use module traceback to show details"
+				print("Can't use module traceback to show details") 
 		return None
 
