@@ -36,7 +36,8 @@ work(asyn): 开始运行，参数asyn=True时，将在主线程进行运行管�
 import time
 import threading
 sleep_time=1.0
-# A description, notes: the class that you should inherit is Spider, not BaseSpider
+
+# A demo class just for description, notes: the class that you should inherit is Multi, not BaseMulti
 class BaseMulti(object):
 	# init urls to spiding 
 	initobjs = []
