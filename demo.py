@@ -22,9 +22,11 @@ func, attrs, remain, callback
 		succeed用来判断函数是否运行成功，如果func中抛出异常，则succeed为False
 
 """
+import time
+import random
 class Test(multi.Multi):
-	def __init__(self):
-		multi.Multi.__init__(self)
+	def __init__(self, single_thread_for_feedback=False):
+		multi.Multi.__init__(self, single_thread_for_feedback)
 		self.init_objs()
 		list_attrs = ["http://www.baidu.com"]
 		map_attrs = {"timeout":10}
@@ -44,11 +46,20 @@ class Test(multi.Multi):
 
 			attrs = self.attrs(["http://fanyi.baidu.com/"])
 			self.push(requests.get, attrs, 2)
+		for i in xrange(10):
+			slp = random.random()
+			print response.url,":",i,"sleep:",slp
+			time.sleep(slp)
 	def clean(self):
 		print "work done"
 		return 123
-tst = Test()
+
+"""
+python
+from multi import demo
+tst = demo.Test()
 # tst.work(asyn = True)
 # or:
 rst =tst.work(asyn = False)
 print "rst:",rst
+"""

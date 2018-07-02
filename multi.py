@@ -44,11 +44,15 @@ class BaseMulti(object):
 	sleep_time = 1.0
 	# max threads limit 
 	max_threads = 300
-
 	# time seperate of each spiding 
 	seperate_time = 0
 	show = True
 	container_size = 300
+
+	# if single_thread_for_feedback is True
+	# the function deal (or other callback function) will run in linear order, so don't need to care about lock and ect
+	def __init__(self, single_thread_for_feedback = False):
+		pass
 	# you should implement this by yourself
 	def deal(self, response, remain, succeed):
 		pass
@@ -56,7 +60,10 @@ class BaseMulti(object):
 	# you can implement this 
 	def clean(self):
 		pass
-	
+
+	# or this
+	def output(self):
+		return self.clean()
 	# 
 	def suspend(self):
 		pass 
@@ -66,13 +73,17 @@ class BaseMulti(object):
 		pass
 
 	def init_objs(self):
-		self.initobjs = []
+		pass
 
 	def init_push(self, func, attrs, remain = None, callback = None):
-		self.initobjs.append([func,attrs,remain,callback])
+		pass
 
 	# append url to spider
-	def push(self, func, attrs, remain = None, callback = None):
+	def push(self,func, args = [], remain = None, callback = None, locked_need = False):
+		pass
+	# single lock for multi obj push
+	# the obj in list should be in structure like parameters in function push
+	def pushs(self, list, locked_need = False):
 		pass
 		
 	# let spider running
@@ -149,18 +160,118 @@ class SingleThread(threading.Thread):
 		self.__done = True
 	
 class MainThread(threading.Thread):
-	def __init__(self, spider):
+	def __init__(self, multi):
 		threading.Thread.__init__(self)
-		self.spider =spider 
+		self.multi =multi 
 	
 	def run(self):
-		self.spider.inner_run()
-		self.spider.thd_done()
+		self.multi.inner_run()
+		self.multi.thd_done()
 
+class RingQueue(object):
+	def __init__(self, size = 100, auto_wait = False, wait_time = 0.1):
+		size += 1
+		self.products = [None for i in xrange(size)]
+		self.first = 0
+		self.last = 0
+		self.size = size
+		self.wait_time = wait_time
+		self.auto_wait = auto_wait
+	def full(self):
+		nxt = (self.last + 1)% self.size
+		return nxt == self.first
+	def push(self, obj):
+		while self.auto_wait and self.full():
+			time.sleep(self.wait_time)
+		nxt = (self.last + 1)% self.size
+		self.products[self.last]=obj 
+		self.last = self.nxt
+	def empty(self):
+		return self.first == self.last
+	def pop(self):
+		while self.auto_wait and self.empty():
+			time.sleep(self.wait_time)
+		obj = self.products[self.first]
+		self.products[self.first] = None 
+		self.first = (self.first + 1) % self.size
+		return obj 
 
+class ThreadSafeQueue(object):
+	def __init__(self, size = -1, wait_time = 1.0):
+		self.products = []
+		self.size = size
+		self.comsume_ct = threading.Condition()
+		self.product_ct = threading.Condition()
+		self.wait_time = wait_time
+	def push(self, obj):
+		with self.product_ct:
+			if self.size > 0:
+				if len(self.products) >= self.size:
+					self.product_ct.wait()
+			self.products.append(obj)
+		with self.comsume_ct:
+			self.comsume_ct.notify()
+	def pop(self):
+		with self.comsume_ct:
+			if len(self.products) == 0:
+				self.comsume_ct.wait(self.wait_time)
+			if len(self.products) == 0:
+				return None 
+			obj = self.products.pop()
+		with self.product_ct:
+			self.product_ct.notify()
+		return obj 
+	def clean(self):
+		self.products = []
+class SingleFeedback(threading.Thread):
+	def __init__(self, container_size, wait_time = 1.0):
+		threading.Thread.__init__(self)
+		self.running = True 
+		self.queue = ThreadSafeQueue(container_size)
+		self.__shutdown = False
+		self.__ct = threading.Condition()
+		pass
+	def push(self,callback,response, remain,succeed):
+		self.queue.push([callback,response,remain,succeed])
+	def run(self):
+		with self.__ct:
+			self.running = True 
+			self.__shutdown = False
+		obj = None
+		while self.running or obj is not None:
+			obj = self.queue.pop()
+			if obj is None:
+				continue
+			callback,response,remain,succeed = obj 
+			callback(response,remain,succeed)
+		self.queue.clean()
+		with self.__ct:
+			self.__shutdown = True
+			self.__ct.notify()
+	def shutdown(self):
+		with self.__ct:
+			self.running = False
+		with self.__ct:
+			if self.__shutdown == False:
+				self.__ct.wait()
+class SingleFeedbackThread(threading.Thread):
+	def __init__(self, single_feedback):
+		threading.Thread.__init__(self)
+		self.single_feedback = single_feedback
+	def run(self):
+		self.single_feedback.run()
+class CallBack(object):
+	def __init__(self,callback,container):
+		self.callback = callback
+		self.container = container
+	def __call__(self,response, remain,succeed):
+		self.container.push(self.callback,response, remain,succeed)
 class Multi(BaseMulti):
-	def __init__(self):
+	def __init__(self, single_thread_for_feedback = False):
 		self.__on_running = False
+		self.__single_thread_for_feedback = single_thread_for_feedback
+		if self.__single_thread_for_feedback:
+			self.single_thread_container = SingleFeedback(300)
 	def change_run_urls(self):
 		self.__run_urls = self.__wait_urls[0]
 		self.__wait_urls = self.__wait_urls[1:]
@@ -170,6 +281,9 @@ class Multi(BaseMulti):
 		return len(self.__run_urls) + len(self.__wait_urls[-1]) + len(self.__threads) > 0 or len(self.__wait_urls) > 1
 
 	def __initz(self):
+		if self.__single_thread_for_feedback:
+			self.single_thread_container_thread = SingleFeedbackThread(self.single_thread_container)
+			self.single_thread_container_thread.start()
 		self.__suspended=False
 		self.__lock = threading.Lock()
 		self.__suspend_lock = threading.Lock()
@@ -191,19 +305,48 @@ class Multi(BaseMulti):
 			Multi.push(self, func, attrs, remain, callback)
 		self.change_run_urls()
 
-	def push(self,func, args = [],remain = None, callback = None):
+	def init_objs(self):
+		self.initobjs = []
+
+	def init_push(self, func, attrs, remain = None, callback = None):
 		if callback == None:
 			callback = self.deal
+		if self.__single_thread_for_feedback:
+			callback = CallBack(callback, self.single_thread_container)
+		self.initobjs.append([func,attrs,remain,callback])
+
+	def __inner_push(self,func, args = [], remain = None, callback = None):
+		if callback == None:
+			callback = self.deal
+		if self.__single_thread_for_feedback:
+			callback = CallBack(callback, self.single_thread_container)
+		if len(self.__wait_urls[-1])>= self.container_size:
+			self.__wait_urls.append([])
+		if type(args) == dict:
+			args = [[],args]
+		elif len(args)==0:
+			args = [[],dict()]
+		elif len(args)==1:
+			args.append(dict())
+		self.__wait_urls[-1].append((func, args, remain, callback))
+
+	def push(self,func, args = [], remain = None, callback = None, locked_need = False):
+		if self.__single_thread_for_feedback and not locked_need:
+			self.__inner_push(func,args,remain,callback)
+			return 
 		with self.__lock:
-			if len(self.__wait_urls[-1])>= self.container_size:
-				self.__wait_urls.append([])
-			if type(args) == dict:
-				args = [[],args]
-			elif len(args)==0:
-				args = [[],dict()]
-			elif len(args)==1:
-				args.append(dict())
-			self.__wait_urls[-1].append((func, args, remain, callback))
+			self.__inner_push(func,args,remain,callback)
+
+	def __inner_pushs(self, list):
+		for it in list:
+			self.__inner_push(*it)
+
+	def pushs(self, list, locked_need = False):
+		if self.__single_thread_for_feedback and not locked_need:
+			self.__inner_pushs(list)
+			return 
+		with self.__lock:
+			self.__inner_pushs(list)
 
 	@staticmethod
 	def attrs(lst=[], maps=dict()):
@@ -319,8 +462,10 @@ class Multi(BaseMulti):
 			th.join()
 			if th.done():
 				self.__threads.pop(0)
+		if self.__single_thread_for_feedback:
+			self.single_thread_container.shutdown()
 		try:
-			return self.clean()
+			return self.output()
 		except Exception, e:
 			print("Error code in your spider's function clean:", e )
 			try:
