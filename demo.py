@@ -63,3 +63,73 @@ tst = demo.Test()
 rst =tst.work(asyn = False)
 print "rst:",rst
 """
+
+"""
+need implement:
+fc_sim :
+rule:
+key_words to key_words
+html2urls 
+robots check
+"""
+
+class Demo(multi.Multi):
+	def __init__(self,lnks_with_weight,fc_sim):
+		multi.Multi.__init__(self, True)
+		self.urls = lnks_with_weight[:]
+		self.sim=fc_sim 
+		self.set = set()
+		self.done_urls = []
+		self.init_objs()
+		self.max_container_urls = 300
+		self.push_urls = 10
+		self.deal_urls = 100
+		self.total_urls = 3000
+		self.robots = None
+		for url in self.urls:
+			parm = self.attrs([url[0]],{})
+			self.init_push(requests.get,parm,url[1],self.deal)
+	def check_urls(self):
+		if len(self.urls) < self.deal_urls:
+			return 
+		self.urls.sort(key=lambda x:x[1], reverse=True)
+		for i in xrange(self.push_urls ):
+			url = self.urls[i] 
+			self.push(url)
+			parm=self.attrs([url[0]])
+			self.push(requests.head,parm,url[1],self.deal)
+		if len(self.urls) > self.max_container_urls:
+			self.urls = self.urls[:self.max_container_urls]
+	def deal(self, response, remain, succeed):
+		if not succeed:
+			print "failed to get url:",response 
+			return 
+		url = response.url 
+		method = response.request.method # 'HEAD', 'GET', 'POST', ...
+		if method == 'HEAD':
+			ct_type = response.headers['Content-Type']
+			if ct_type != 'text/html':
+				return 
+			parm=self.attrs([url])
+			self.push(requests.get,parm,remain,self.deal)
+			return 
+		elif method == '':
+			print "error request.method in here:",url 
+			return 
+		self.check_urls()
+		self.set.add(url)
+		cts = response.content
+		sim = self.sim(cts)
+		self.done_urls.append([url,sim])
+		if len(self.set)>self.total_urls:
+			print "catched enough url:", len(self.set)
+			return 
+		chd_sim = remain + sim 
+		urls = html2urls(cts)
+		for turl in urls:
+			if turl in self.set or not self.robots.allow(turl):
+				continue 
+			self.urls.append([turl,chd_sim])
+	def output(self):
+		self.done_urls.sort(key=lambda x:x[1], reverse=True)
+		return self.done_urls[:10]
