@@ -72,20 +72,62 @@ key_words to key_words
 html2urls 
 robots check
 """
+"""
 
+python
+from multi import demo 
+keys = []
+words = u"恐怖小说,恐怖,惊悚,  鬼, 尸体, 死亡, 小说"
+values = [     0.5, 0.1, 0.1, 0.1,  0.1,  0.1,  0.1]
+words = ''.join(words.split(" "))
+words = words.split(',')
+if len(values)!=len(words):
+	print "ERROR  LEN"
+
+for i in xrange(len(words)):
+	keys.append([words[i],values[i]])
+
+lnks = []
+lnks.append([u'http://book.zongheng.com/book/144244.html',1.0])
+lnks.append([u'http://www.biquge.com.tw/2_2497/',1.0])
+lnks.append([u'http://www.biquge.com.tw/2_2556/',3.0])
+lnks.append([u'http://www.biquge.com.tw/0_278/',3.0])
+lnks.append([u'http://www.biquge.com.tw/0_278/',2.0])
+lnks.append([u'http://www.biquge.com.tw/0_270/',2.0])
+fc_sim = demo.Sim(keys)
+spd = demo.Demo(lnks,fc_sim)
+spd.work(asyn=True)
+
+"""
+from spider import robots,url_base
+class Sim(object):
+	# key_words: list of [word,value]
+	def __init__(self,key_words):
+		self.key_words = key_words
+	def __call__(self,contents):
+		l = len(contents)
+		rst = 0.0
+		keys = self.key_words 
+		for k in keys:
+			key = k[0]
+			c = contents.count(key)
+			n = 1.0 * c / l 
+			rst += n * k[1]
+		return rst 
 class Demo(multi.Multi):
 	def __init__(self,lnks_with_weight,fc_sim):
 		multi.Multi.__init__(self, True)
 		self.urls = lnks_with_weight[:]
 		self.sim=fc_sim 
 		self.set = set()
+		self.waitset = set()
 		self.done_urls = []
 		self.init_objs()
 		self.max_container_urls = 300
 		self.push_urls = 10
 		self.deal_urls = 100
 		self.total_urls = 3000
-		self.robots = None
+		self.robots = robots.Robots()
 		for url in self.urls:
 			parm = self.attrs([url[0]],{})
 			self.init_push(requests.get,parm,url[1],self.deal)
@@ -94,10 +136,9 @@ class Demo(multi.Multi):
 			return 
 		self.urls.sort(key=lambda x:x[1], reverse=True)
 		for i in xrange(self.push_urls ):
-			url = self.urls[i] 
-			self.push(url)
-			parm=self.attrs([url[0]])
-			self.push(requests.head,parm,url[1],self.deal)
+			urlobj = self.urls[i] 
+			parm=self.attrs([urlobj[0]],{'headers':url_base.header(urlobj[0])})
+			self.push(requests.head,parm,urlobj[1],self.deal)
 		if len(self.urls) > self.max_container_urls:
 			self.urls = self.urls[:self.max_container_urls]
 	def deal(self, response, remain, succeed):
@@ -105,31 +146,37 @@ class Demo(multi.Multi):
 			print "failed to get url:",response 
 			return 
 		url = response.url 
+		#if url in self.set:
+		#	return
 		method = response.request.method # 'HEAD', 'GET', 'POST', ...
 		if method == 'HEAD':
 			ct_type = response.headers['Content-Type']
 			if ct_type != 'text/html':
 				return 
-			parm=self.attrs([url])
+			parm=self.attrs([url],{'headers':url_base.header(url)})
 			self.push(requests.get,parm,remain,self.deal)
 			return 
 		elif method == '':
 			print "error request.method in here:",url 
 			return 
+		url_base.rq_encode(response)
 		self.check_urls()
 		self.set.add(url)
-		cts = response.content
-		sim = self.sim(cts)
+		text = response.text
+		sim = self.sim(text)
 		self.done_urls.append([url,sim])
 		if len(self.set)>self.total_urls:
 			print "catched enough url:", len(self.set)
 			return 
 		chd_sim = remain + sim 
-		urls = html2urls(cts)
+		urls = url_base.html2urls(text, url)
 		for turl in urls:
-			if turl in self.set or not self.robots.allow(turl):
+			if not url_base.maybe_html(turl) or turl in self.waitset or not self.robots.allow(turl):
 				continue 
+			self.waitset.add(turl)
 			self.urls.append([turl,chd_sim])
+		self.check_urls()
 	def output(self):
+		print "DONE WORK"
 		self.done_urls.sort(key=lambda x:x[1], reverse=True)
 		return self.done_urls[:10]

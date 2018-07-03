@@ -147,7 +147,7 @@ class SingleThread(threading.Thread):
 				import traceback
 				traceback.print_exc()
 			succeed = False
-			rp = None
+			rp = func,attrs
 		try:
 			self.callback(rp,self.remain,succeed)
 		except Exception,e:
@@ -221,6 +221,8 @@ class ThreadSafeQueue(object):
 		with self.product_ct:
 			self.product_ct.notify()
 		return obj 
+	def empty(self):
+		return len(self.products) == 0
 	def clean(self):
 		self.products = []
 class SingleFeedback(threading.Thread):
@@ -230,6 +232,7 @@ class SingleFeedback(threading.Thread):
 		self.queue = ThreadSafeQueue(container_size)
 		self.__shutdown = False
 		self.__ct = threading.Condition()
+		self.has_obj = False
 		pass
 	def push(self,callback,response, remain,succeed):
 		self.queue.push([callback,response,remain,succeed])
@@ -239,7 +242,9 @@ class SingleFeedback(threading.Thread):
 			self.__shutdown = False
 		obj = None
 		while self.running or obj is not None:
-			obj = self.queue.pop()
+			with self.__ct:
+				obj = self.queue.pop()
+				self.has_obj = obj is not None
 			if obj is None:
 				continue
 			callback,response,remain,succeed = obj 
@@ -248,6 +253,11 @@ class SingleFeedback(threading.Thread):
 		with self.__ct:
 			self.__shutdown = True
 			self.__ct.notify()
+	def empty(self):
+		with self.__ct:
+			if not self.has_obj:
+				return False  
+		return self.queue.empty()
 	def shutdown(self):
 		with self.__ct:
 			self.running = False
@@ -278,6 +288,9 @@ class Multi(BaseMulti):
 		if len(self.__wait_urls)==0:
 			self.__wait_urls.append([])
 	def has_something(self):
+		if self.__single_thread_for_feedback:
+			if not self.single_thread_container.empty():
+				return True 
 		return len(self.__run_urls) + len(self.__wait_urls[-1]) + len(self.__threads) > 0 or len(self.__wait_urls) > 1
 
 	def __initz(self):
@@ -380,8 +393,8 @@ class Multi(BaseMulti):
 	def resume(self):
 		if not self.__suspended:
 			return True 
-		self.__suspend_lock.release()
 		self.__suspended = False 
+		self.__suspend_lock.release()
 		return True
 	
 	def suspend(self):	
