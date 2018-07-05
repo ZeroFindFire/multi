@@ -453,7 +453,7 @@ class Multi(BaseMulti):
 				return True 
 		return len(self.__run_urls) + len(self.__wait_urls[-1]) + len(self.__threads) > 0 or len(self.__wait_urls) > 1
 	def shows(self,s):
-		if mark_shows:
+		if self.mark_shows:
 			print "\n\n\n@@@@@@@@@@@@@@@@@@@@@@@@@@@\n\n\n"+s+"\n\n\n@@@@@@@@@@@@@@@@@@@@@@@@@@@n\n\n"
 	def inner_run(self):
 		self.__initz()

@@ -86,9 +86,11 @@ spd.show=False
 spd.work(asyn=True)
 
 
+python
+from multi import demo 
 keys = []
 words = u"恐怖小说,恐怖,惊悚,  鬼, 尸体, 死亡, 小说"
-values = [     0.5, 0.1, 0.1, 0.1,  0.1,  0.1,  0.1]
+values = [     0.1, 0.1, 0.1, 0.1,  0.1,  0.1,  0.01]
 words = ''.join(words.split(" "))
 words = words.split(',')
 if len(values)!=len(words):
@@ -110,6 +112,7 @@ spd.work(asyn=True)
 
 """
 from spider import robots,url_base,cut
+import random 
 def keys(url, num = 10):
 	import requests 
 	rp = requests.get(url)
@@ -146,34 +149,60 @@ class Demo(multi.Multi):
 		self.init_objs()
 		self.max_container_urls = 300
 		self.push_urls = 10
-		self.deal_urls = 100
+		self.deal_urls = 600
 		self.total_urls = 3000
-		self.robots = robots.Robots()
+		self.robots = robots.Robots(False)
 		self.weight_remain = weight_remain
+		self.on_running_count = 0
 		for url in self.urls:
 			parm = self.attrs([url[0]],{})
 			self.init_push(requests.get,parm,url[1],self.deal)
 	def check_urls(self):
-		if len(self.urls) < self.deal_urls:
-			#print "empty in check_urls"
-			pass 
+		if self.on_running_count > self.deal_urls:
+			mx_len = self.push_urls+self.max_container_urls
+			if len(self.urls) > mx_len*2:
+				self.urls.sort(key=lambda x:x[1], reverse=True)
+				print "check_urls cut",len(self.urls),"to",mx_len
+				self.urls = self.urls[:mx_len]
+			print "check_urls too many in run:",self.on_running_count
+			return 
 		self.urls.sort(key=lambda x:x[1], reverse=True)
 		l = min(len(self.urls), self.push_urls)
 		for i in xrange(l):
 			urlobj = self.urls[i] 
 			url = urlobj[0]
-			parm=self.attrs([url],{'headers':url_base.header(url)})
+			uhost = url_base.http_base(url)
+			parm=self.attrs([url],{'headers':url_base.header(uhost)})
 			self.push(requests.head,parm,urlobj[1],self.deal)
+			self.on_running_count+=1
 			#print "		check url push head",urlobj[0]
 			#self.waitset.add(url)
+		
+		print "done push ",l," requests.head",len(self.urls)
 		self.urls = self.urls[l:]
+		print "current url lens:",len(self.urls)
 		if len(self.urls) > self.max_container_urls:
+			print "do remove from set:",self.max_container_urls,len(self.urls),len(self.urls)-self.max_container_urls
 			for urlboj in self.urls[self.max_container_urls:]:
 				url  =urlobj[0]
 				if url in self.waitset:
 					self.waitset.remove(url)
 			self.urls = self.urls[:self.max_container_urls]
+			print "done remove from set"
+		print "finish check_urls",len(self.urls)
+	def robots_deal(self,response,remain,succeed):
+		url,chd_sim,lurls, count_obj = remain
+		count_obj[0]+=1
+		if response == True:
+			self.waitset.add(url)
+			self.urls.append([url,chd_sim])
+		if count_obj[0] == lurls:
+			self.check_urls()
+			print "finish check_urls"
+		elif random.random() > 0.9:
+			self.check_urls()
 	def deal(self, response, remain, succeed):
+		self.on_running_count-=1
 		if not succeed:
 			print "failed to get url:",response 
 			return 
@@ -187,8 +216,11 @@ class Demo(multi.Multi):
 			if ct_type.lower().find('text/html')<0 :
 				print "not text/html:",ct_type
 				return 
-			parm=self.attrs([url],{'headers':url_base.header(url)})
+			uhost = url_base.http_base(url)
+			parm=self.attrs([url],{'headers':url_base.header(uhost)})
 			self.push(requests.get,parm,remain,self.deal)
+			self.on_running_count+=1
+			print "finish head ",url
 			return 
 		elif method == '':
 			print "error request.method in here:",url 
@@ -205,10 +237,14 @@ class Demo(multi.Multi):
 			return 
 		chd_sim = self.weight_remain * remain + sim 
 		urls = url_base.html2urls(text, url)
-		#print "len urls:",len(urls)
-		cnt = 0
-		for turl in urls:
-			if not url_base.maybe_html(turl) or turl in self.waitset or not self.robots.allow(turl):
+		print "urls in ",url,": ",len(urls)
+		#cnt = 0
+		lurls = len(urls)
+		#for turl in urls:
+		count_object = [0]
+		for i in xrange(lurls):
+			turl = urls[i]
+			if not url_base.maybe_html(turl) or turl in self.waitset:
 				if not url_base.maybe_html(turl):
 					#print "mabe not url:",turl 
 					pass 
@@ -216,15 +252,20 @@ class Demo(multi.Multi):
 					#print "robots not allow:",turl
 					pass
 				continue 
+			self.push(self.robots.allow,self.attrs([turl]),[turl, chd_sim,lurls,count_object],self.robots_deal)
+			continue
+			if  not self.robots.allow(turl):
+				pass
 			#self.waitset.add(turl)
 			#if len(self.urls) > self.max_container_urls:
 			#	continue 
-			cnt += 1
 			self.waitset.add(turl)
 			self.urls.append([turl,chd_sim])
-		#print "push count:",cnt
-		self.check_urls()
+		#print "push count in url",url,":",cnt
+		
+		print "finish get ",url
 	def output(self):
+		self.on_running_count = 0
 		print "DONE WORK"
 		self.done_urls.sort(key=lambda x:x[1], reverse=True)
 		return self.done_urls[:10]
