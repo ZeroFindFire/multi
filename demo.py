@@ -72,12 +72,44 @@ key_words to key_words
 html2urls 
 robots check
 """
+
+s = """
+爬虫 0.322882357397
+url 0.23752647481
+广度 0.131058550601
+深度 0.131058550601
+deepth 0.128684257297
+seeds 0.128684257297
+种子 0.128684257297
+优先 0.11266019461
+抓取 0.096978431194
+http 0.090078980108
+队列 0.0822981462228
+HTML 0.0772105543783
+"""
+
 """
 
 python
 from multi import demo 
 url = "https://www.cnblogs.com/wangshuyi/p/6734523.html"
 keys = demo.keys(url,30)
+
+python
+from multi import demo 
+s = demo.s
+sr=s.split("\n")
+keys = []
+for s in sr:
+	kw=s.split(" ")
+	if len(kw)!=2:
+		continue
+	key, weight = kw
+	key = key.decode("utf-8")
+	weight = float(weight)
+	keys.append([key,weight])
+
+
 lnks = []
 lnks.append([u'http://book.zongheng.com/book/144244.html',1.0])
 fc_sim = demo.Sim(keys)
@@ -196,6 +228,8 @@ class Demo(multi.Multi):
 		if response == True:
 			self.waitset.add(url)
 			self.urls.append([url,chd_sim])
+		self.check_urls()
+		return 
 		if count_obj[0] == lurls:
 			self.check_urls()
 			print "finish check_urls"
