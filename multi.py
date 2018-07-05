@@ -210,72 +210,113 @@ class ThreadSafeQueue(object):
 		self.comsume_ct = threading.Condition()
 		self.product_ct = threading.Condition()
 		self.wait_time = wait_time
+		self.accept = True
+		self.__lock = threading.Lock()
+		self.waiting = 0
 	def push(self, obj):
 		with self.product_ct:
+			if not self.accept:
+				return 
 			if self.size > 0:
-				if len(self.products) >= self.size:
+				with self.__lock:
+					num = len(self.products)
+				if num >= self.size:
+					self.waiting += 1
 					self.product_ct.wait()
-			self.products.append(obj)
+					self.waiting -= 1
+			if not self.accept:
+				return 
+			with self.__lock:
+				self.products.append(obj)
 		with self.comsume_ct:
 			self.comsume_ct.notify()
 	def pop(self):
 		with self.comsume_ct:
-			if len(self.products) == 0:
+			with self.__lock:
+				num = len(self.products)
+			if num == 0:
 				self.comsume_ct.wait(self.wait_time)
-			if len(self.products) == 0:
+			with self.__lock:
+				num = len(self.products)
+			if num == 0:
 				return None 
-			obj = self.products.pop()
+			with self.__lock:
+				obj = self.products.pop()
 		with self.product_ct:
 			self.product_ct.notify()
 		return obj 
 	def empty(self):
-		#with self.product_ct:
-		return len(self.products) == 0
+		with self.__lock:
+			return len(self.products) == 0
 	def clean(self):
+		with self.product_ct:
+			self.products = []
+		with self.product_ct:
+			self.accept = False
+			self.product_ct.notify_all()
+	def init(self):
 		self.products = []
+		self.accept = True
 class SingleFeedback(threading.Thread):
-	def __init__(self, container_size, wait_time = 1.0):
+	def __init__(self, multi, container_size, wait_time = 1.0):
 		threading.Thread.__init__(self)
 		self.running = True 
-		self.queue = ThreadSafeQueue(container_size)
+		self.queue = ThreadSafeQueue(container_size, wait_time)
 		self.__shutdown = False
 		self.__ct = threading.Condition()
-		self.has_obj = False
-		pass
-	def push(self,callback,response, remain,succeed):
+		self.has_obj = True
+		self.multi = multi
+	def push(self,obj):
+		self.queue.push(obj)
+	def push_bak(self,callback,response, remain,succeed):
 		self.queue.push([callback,response,remain,succeed])
+	def init(self):
+		self.queue.init()
+		self.has_obj = True
 	def run(self):
 		with self.__ct:
 			self.running = True 
 			self.__shutdown = False
 		obj = None
-		while self.running or obj is not None:
+		while self.running:
 			with self.__ct:
 				obj = self.queue.pop()
 				self.has_obj = obj is not None
 			if obj is None:
 				continue
 			callback,response,remain,succeed = obj 
-			callback(response,remain,succeed)
+			self.tmp = obj
+			try:
+				callback(response,remain,succeed)
+			except Exception,e:
+				if self.multi.show:
+					print("callback error:",e,e.message)
+					try:
+						import traceback
+						traceback.print_exc()
+					except:
+						print("Can't use module traceback to show details")
 		self.queue.clean()
 		with self.__ct:
 			self.__shutdown = True
 			self.__ct.notify()
 	def empty(self):
 		with self.__ct:
-			if not self.has_obj:
-				return False  
-		return self.queue.empty()
+			if self.has_obj:
+				return False
+			return self.queue.empty()
 	def shutdown(self):
 		with self.__ct:
 			self.running = False
 		with self.__ct:
 			if self.__shutdown == False:
+				self.running = False
 				self.__ct.wait()
 class SingleFeedbackThread(threading.Thread):
 	def __init__(self, single_feedback):
 		threading.Thread.__init__(self)
 		self.single_feedback = single_feedback
+		self.single_feedback.init()
 	def run(self):
 		self.single_feedback.run()
 class CallBack(object):
@@ -284,7 +325,269 @@ class CallBack(object):
 		self.container = container
 	def __call__(self,response, remain,succeed):
 		self.container.push([self.callback,response, remain,succeed])
+
+class LinearContainer(object):
+	def __init__(self, multi):
+		self.multi = multi 
+		self.ct = []
+		self.push = self.add
+	def add(self,func, attrs, remain = None, callback = None):
+		self.ct.append([func,attrs,remain,callback])
+	def commit(self):
+		if len(self.ct)==0:
+			return 
+		self.multi.pushs(self.ct)
+		self.ct = []
 class Multi(BaseMulti):
+	mark_shows = True
+	def __init__(self, single_thread_for_feedback = False):
+		self.__mark_work = False
+		self.__on_running = False
+		self.__single_thread_for_feedback = single_thread_for_feedback
+		if self.__single_thread_for_feedback:
+			self.single_thread_container = SingleFeedback(self,300)
+			#self.queue = ThreadSafeQueue(300)
+	def change_run_urls(self):
+		self.__run_urls = self.__wait_urls[0]
+		self.__wait_urls = self.__wait_urls[1:]
+		if len(self.__wait_urls)==0:
+			self.__wait_urls.append([])
+	def manager(self):
+		return LinearContainer(self)
+	def __initz(self):
+		if self.__single_thread_for_feedback:
+			self.single_thread_container_thread = SingleFeedbackThread(self.single_thread_container)
+			self.single_thread_container_thread.start()
+		self.__suspended=False
+		self.__lock = threading.Lock()
+		self.__suspend_lock = threading.Lock()
+		self.__run_urls = []
+		self.__wait_urls = [[]]
+		for urlobj in self.initobjs:
+			tp = type(urlobj)
+			remain = None
+			if tp not in [list,tuple]:
+				func = urlobj 
+				attrs = self.attrs()
+				remain = None
+				callback = None
+			else:
+				func = urlobj[0]
+				attrs = self.attrs() if len(urlobj) <2 else urlobj[1]
+				remain = None if len(urlobj)<3 else urlobj[2]
+				callback = None if len(urlobj)<4 else urlobj[3]
+			Multi.push(self, func, attrs, remain, callback)
+		self.change_run_urls()
+
+	def init_objs(self):
+		self.initobjs = []
+
+	def init_push(self, func, attrs, remain = None, callback = None):
+		if callback == None:
+			callback = self.deal
+		if self.__single_thread_for_feedback:
+			callback = CallBack(callback, self.single_thread_container)
+		self.initobjs.append([func,attrs,remain,callback])
+
+	def __inner_push(self,func, args = [], remain = None, callback = None):
+		if callback == None:
+			callback = self.deal
+		if self.__single_thread_for_feedback:
+			callback = CallBack(callback, self.single_thread_container)
+		if len(self.__wait_urls[-1])>= self.container_size:
+			self.__wait_urls.append([])
+		if type(args) == dict:
+			args = [[],args]
+		elif len(args)==0:
+			args = [[],dict()]
+		elif len(args)==1:
+			args.append(dict())
+		self.__wait_urls[-1].append((func, args, remain, callback))
+
+	def push(self,func, args = [], remain = None, callback = None, locked_need = False):
+		with self.__lock:
+			self.__inner_push(func,args,remain,callback)
+		return 
+		if self.__single_thread_for_feedback and not locked_need:
+			self.__inner_push(func,args,remain,callback)
+			return 
+	
+	def __inner_pushs(self, list):
+		for it in list:
+			self.__inner_push(*it)
+
+	def pushs(self, list, locked_need = False):
+		with self.__lock:
+			self.__inner_pushs(list)
+		return 
+		if self.__single_thread_for_feedback and not locked_need:
+			self.__inner_pushs(list)
+			return 
+		with self.__lock:
+			self.__inner_pushs(list)
+
+	@staticmethod
+	def attrs(lst=[], maps=dict()):
+		return [lst,maps]
+
+	def start(self):
+		if self.__on_running:
+			return False
+		self.__stop = False
+		self.__on_running = True
+		main_thread = MainThread(self)
+		main_thread.start()
+		self.__main_thread = main_thread
+		return self.__on_running
+	def renew(self):
+		if self.__on_running:
+			print("You can not call this funcion when the thread is running!")
+			print(" the thread is on running, wait until it done or call poweroff() to stop it")
+			print(" call done() to check if the thread is done")
+			return
+		self.__mark_work = False
+	def work(self,asyn = True):
+		if self.__mark_work:
+			print("This function is already running or done run, to recall this, you should call function renew() first")
+		self.__mark_work = True
+		if asyn:
+			return self.start()
+		else:
+			return self.run()
+	
+	def poweroff(self):
+		self.__stop=True
+	
+	def done(self):
+		return self.__on_running==False
+	
+	def thd_done(self):
+		self.__on_running=False
+	
+	def resume(self):
+		if not self.__suspended:
+			return True 
+		self.__suspended = False 
+		self.__suspend_lock.release()
+		return True
+	
+	def suspend(self):	
+		if self.__suspended:
+			return True
+		self.__suspend_lock.acquire()
+		while len(self.__threads)>0:
+			th=self.__threads[0]
+			th.join()
+			if th.done():
+				self.__threads.pop(0)
+		self.__suspended = True
+		return True
+
+	def clear_threads(self):
+		len_thd = len(self.__threads)
+		cnt_thd = 0
+		count_running = 0
+		while cnt_thd < len_thd:
+			if self.__threads[cnt_thd].done():
+				self.__threads.pop(cnt_thd)
+				len_thd -= 1
+			else:
+				cnt_thd += 1
+				count_running +=1 
+		return count_running
+	def run(self):
+		self.__stop = False
+		out = self.inner_run()
+		self.__on_running=False
+		return out
+	def has_something(self):
+		return False
+	def do_something(self):
+		pass
+	def __has_something(self):
+		if self.has_something():
+			return True 
+		if len(self.__threads) > 0:
+			return True
+		if self.__single_thread_for_feedback:
+			if not self.single_thread_container.empty():
+				return True 
+		with self.__lock:
+			return len(self.__run_urls) + len(self.__wait_urls[-1]) + len(self.__threads) > 0 or len(self.__wait_urls) > 1
+	def shows(self,s):
+		if self.mark_shows:
+			print("\n\n\n@@@@@@@@@@@@@@@@@@@@@@@@@@@\n\n\n"+s+"\n\n\n@@@@@@@@@@@@@@@@@@@@@@@@@@@n\n\n")
+	def build_thread(self, obj):
+		func, attrs, remain, callback= obj 
+		if threading.active_count() >= self.max_threads:
+			return False 
+		with self.__suspend_lock:
+			try:
+				newthread = SingleThread(func, attrs, remain, callback, self.show)
+				newthread.start()
+			except Exception,e:
+				return False 
+			self.__threads.append(newthread)
+		return True 
+	def inner_run(self):
+		self.__initz()
+		self.__threads = []
+		global sleep_time
+		#cnt=0
+		while self.__has_something() and not self.__stop:
+			if len(self.__run_urls) == 0:
+				if self.sleep_time is not None:
+					time.sleep(self.sleep_time)
+				else:
+					time.sleep(sleep_time)
+			self.shows("next run") 
+			self.do_something()
+			cls_cnt=0
+			self.shows( "try __run_urls")
+			for obj in self.__run_urls:
+				while self.build_thread(obj) == False:
+					active_counts = self.clear_threads()
+					cls_cnt = 0
+					if active_counts > self.max_threads:
+						if self.show:
+							print("sleep for active_counts"+str(active_counts))
+						if self.sleep_time is not None:
+							time.sleep(self.sleep_time)
+						else:
+							time.sleep(sleep_time)
+				cls_cnt += 1
+				if cls_cnt>=self.max_threads:
+					self.clear_threads()
+					cls_cnt=0
+			self.shows( "done __run_urls")
+			with self.__lock:
+				self.change_run_urls()
+			self.shows( "done change_run_urls")
+			count_running = self.clear_threads()
+			self.shows( "done clear_threads")
+			
+		self.shows( "DONE RUNNING")
+		if self.__single_thread_for_feedback:
+			self.single_thread_container.shutdown()
+		while len(self.__threads)>0:
+			th=self.__threads[0]
+			th.join()
+			if th.done():
+				self.__threads.pop(0)
+		self.shows( "DONE CLEAR")
+		try:
+			return self.output()
+		except Exception, e:
+			print("Error code in your spider's function clean:", e )
+			try:
+				import traceback
+				traceback.print_exc()
+			except:
+				print("Can't use module traceback to show details") 
+		return None
+
+
+class Multi_Backup(BaseMulti):
 	mark_shows = True
 	def __init__(self, single_thread_for_feedback = False):
 		self.__mark_work = False
@@ -428,12 +731,15 @@ class Multi(BaseMulti):
 	def clear_threads(self):
 		len_thd = len(self.__threads)
 		cnt_thd = 0
+		count_running = 0
 		while cnt_thd < len_thd:
 			if self.__threads[cnt_thd].done():
 				self.__threads.pop(cnt_thd)
 				len_thd -= 1
 			else:
 				cnt_thd += 1
+				count_running +=1 
+		return count_running
 	def run(self):
 		self.__stop = False
 		out = self.inner_run()
@@ -442,7 +748,7 @@ class Multi(BaseMulti):
 	def has_something(self):
 		return False
 	def do_something(self):
-		print "next run"
+		print("next run")
 	def __has_something(self):
 		if self.has_something():
 			return True 
@@ -454,7 +760,19 @@ class Multi(BaseMulti):
 		return len(self.__run_urls) + len(self.__wait_urls[-1]) + len(self.__threads) > 0 or len(self.__wait_urls) > 1
 	def shows(self,s):
 		if self.mark_shows:
-			print "\n\n\n@@@@@@@@@@@@@@@@@@@@@@@@@@@\n\n\n"+s+"\n\n\n@@@@@@@@@@@@@@@@@@@@@@@@@@@n\n\n"
+			print("\n\n\n@@@@@@@@@@@@@@@@@@@@@@@@@@@\n\n\n"+s+"\n\n\n@@@@@@@@@@@@@@@@@@@@@@@@@@@n\n\n")
+	def build_thread(self, obj):
+		func, attrs, remain, callback= obj 
+		if threading.active_count() >= self.max_threads:
+			return False 
+		with self.__suspend_lock:
+			try:
+				newthread = SingleThread(func, attrs, remain, callback, self.show)
+				newthread.start()
+			except Exception,e:
+				return False 
+			self.__threads.append(newthread)
+		return True 
 	def inner_run(self):
 		self.__initz()
 		self.__threads = []
@@ -504,7 +822,7 @@ class Multi(BaseMulti):
 			with self.__lock:
 				self.change_run_urls()
 			self.shows( "done change_run_urls")
-			self.clear_threads()
+			count_running = self.clear_threads()
 			self.shows( "done clear_threads")
 
 			if self.__single_thread_for_feedback:
@@ -522,6 +840,9 @@ class Multi(BaseMulti):
 								traceback.print_exc()
 							except:
 								print("Can't use module traceback to show details")
+					count_running -= 1
+					if count_running <= 0:
+						break 
 					cobj = self.queue.pop()
 					self.cobj = cobj
 			self.shows( "done __single_thread_for_feedback")

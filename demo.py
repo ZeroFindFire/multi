@@ -186,6 +186,7 @@ class Demo(multi.Multi):
 		self.robots = robots.Robots(False)
 		self.weight_remain = weight_remain
 		self.on_running_count = 0
+		self.show_spd = False
 		for url in self.urls:
 			parm = self.attrs([url[0]],{})
 			self.init_push(requests.get,parm,url[1],self.deal)
@@ -194,34 +195,42 @@ class Demo(multi.Multi):
 			mx_len = self.push_urls+self.max_container_urls
 			if len(self.urls) > mx_len*2:
 				self.urls.sort(key=lambda x:x[1], reverse=True)
-				print "check_urls cut",len(self.urls),"to",mx_len
+				if self.show_spd:
+					print "check_urls cut",len(self.urls),"to",mx_len
 				self.urls = self.urls[:mx_len]
-			print "check_urls too many in run:",self.on_running_count
+			if self.show_spd:
+				print "check_urls too many in run:",self.on_running_count
 			return 
 		self.urls.sort(key=lambda x:x[1], reverse=True)
 		l = min(len(self.urls), self.push_urls)
+		manager = self.manager()
 		for i in xrange(l):
 			urlobj = self.urls[i] 
 			url = urlobj[0]
 			uhost = url_base.http_base(url)
 			parm=self.attrs([url],{'headers':url_base.header(uhost)})
-			self.push(requests.head,parm,urlobj[1],self.deal)
+			manager.push(requests.head,parm,urlobj[1],self.deal)
 			self.on_running_count+=1
 			#print "		check url push head",urlobj[0]
 			#self.waitset.add(url)
-		
-		print "done push ",l," requests.head",len(self.urls)
+		manager.commit()
+		if self.show_spd:
+			print "done push ",l," requests.head",len(self.urls)
 		self.urls = self.urls[l:]
-		print "current url lens:",len(self.urls)
+		if self.show_spd:
+			print "current url lens:",len(self.urls)
 		if len(self.urls) > self.max_container_urls:
-			print "do remove from set:",self.max_container_urls,len(self.urls),len(self.urls)-self.max_container_urls
+			if self.show_spd:
+				print "do remove from set:",self.max_container_urls,len(self.urls),len(self.urls)-self.max_container_urls
 			for urlboj in self.urls[self.max_container_urls:]:
 				url  =urlobj[0]
 				if url in self.waitset:
 					self.waitset.remove(url)
 			self.urls = self.urls[:self.max_container_urls]
-			print "done remove from set"
-		print "finish check_urls",len(self.urls)
+			if self.show_spd:
+				print "done remove from set"
+		if self.show_spd:
+			print "finish check_urls",len(self.urls)
 	def robots_deal(self,response,remain,succeed):
 		url,chd_sim,lurls, count_obj = remain
 		count_obj[0]+=1
@@ -232,32 +241,38 @@ class Demo(multi.Multi):
 		return 
 		if count_obj[0] == lurls:
 			self.check_urls()
-			print "finish check_urls"
+			if self.show_spd:
+				print "finish check_urls"
 		elif random.random() > 0.9:
 			self.check_urls()
 	def deal(self, response, remain, succeed):
 		self.on_running_count-=1
 		if not succeed:
-			print "failed to get url:",response 
+			if self.show_spd:
+				print "failed to get url:",response 
 			return 
 		url = response.url 
-		print "deal on ",url
+		if self.show_spd:
+			print "deal on ",url
 		if url in self.set:
 			return
 		method = response.request.method # 'HEAD', 'GET', 'POST', ...
 		if method == 'HEAD':
 			ct_type = response.headers['Content-Type']
 			if ct_type.lower().find('text/html')<0 :
-				print "not text/html:",ct_type
+				if self.show_spd:
+					print "not text/html:",ct_type
 				return 
 			uhost = url_base.http_base(url)
 			parm=self.attrs([url],{'headers':url_base.header(uhost)})
 			self.push(requests.get,parm,remain,self.deal)
 			self.on_running_count+=1
-			print "finish head ",url
+			if self.show_spd:
+				print "finish head ",url
 			return 
 		elif method == '':
-			print "error request.method in here:",url 
+			if self.show_spd:
+				print "error request.method in here:",url 
 			return 
 		url_base.rq_encode(response)
 		self.check_urls()
@@ -271,7 +286,8 @@ class Demo(multi.Multi):
 			return 
 		chd_sim = self.weight_remain * remain + sim 
 		urls = url_base.html2urls(text, url)
-		print "urls in ",url,": ",len(urls)
+		if self.show_spd:
+			print "urls in ",url,": ",len(urls)
 		#cnt = 0
 		lurls = len(urls)
 		#for turl in urls:
@@ -296,8 +312,8 @@ class Demo(multi.Multi):
 			self.waitset.add(turl)
 			self.urls.append([turl,chd_sim])
 		#print "push count in url",url,":",cnt
-		
-		print "finish get ",url
+		if self.show_spd:
+			print "finish get ",url
 	def output(self):
 		self.on_running_count = 0
 		print "DONE WORK"
