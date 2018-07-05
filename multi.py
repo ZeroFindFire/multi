@@ -57,6 +57,12 @@ class BaseMulti(object):
 	def deal(self, response, remain, succeed):
 		pass
 	
+	# you may need to judge to continue loop:
+	def has_something(self):
+		return False
+	# if you do, do something in single loop:
+	def do_something(self):
+		pass
 	# you can implement this 
 	def clean(self):
 		pass
@@ -143,6 +149,7 @@ class SingleThread(threading.Thread):
 		except Exception,e:
 			if self.show:
 				print("ERROR in thread run:",e)
+				print("func is:",func,"parms is:",attrs)
 				print("ORDER:",order)
 				import traceback
 				traceback.print_exc()
@@ -222,6 +229,7 @@ class ThreadSafeQueue(object):
 			self.product_ct.notify()
 		return obj 
 	def empty(self):
+		#with self.product_ct:
 		return len(self.products) == 0
 	def clean(self):
 		self.products = []
@@ -275,28 +283,27 @@ class CallBack(object):
 		self.callback = callback
 		self.container = container
 	def __call__(self,response, remain,succeed):
-		self.container.push(self.callback,response, remain,succeed)
+		self.container.push([self.callback,response, remain,succeed])
 class Multi(BaseMulti):
+	mark_shows = True
 	def __init__(self, single_thread_for_feedback = False):
+		self.__mark_work = False
 		self.__on_running = False
 		self.__single_thread_for_feedback = single_thread_for_feedback
 		if self.__single_thread_for_feedback:
-			self.single_thread_container = SingleFeedback(300)
+			#self.single_thread_container = SingleFeedback(300)
+			self.queue = ThreadSafeQueue(300)
 	def change_run_urls(self):
 		self.__run_urls = self.__wait_urls[0]
 		self.__wait_urls = self.__wait_urls[1:]
 		if len(self.__wait_urls)==0:
 			self.__wait_urls.append([])
-	def has_something(self):
-		if self.__single_thread_for_feedback:
-			if not self.single_thread_container.empty():
-				return True 
-		return len(self.__run_urls) + len(self.__wait_urls[-1]) + len(self.__threads) > 0 or len(self.__wait_urls) > 1
-
+	
 	def __initz(self):
 		if self.__single_thread_for_feedback:
-			self.single_thread_container_thread = SingleFeedbackThread(self.single_thread_container)
-			self.single_thread_container_thread.start()
+			pass
+			#self.single_thread_container_thread = SingleFeedbackThread(self.single_thread_container)
+			#self.single_thread_container_thread.start()
 		self.__suspended=False
 		self.__lock = threading.Lock()
 		self.__suspend_lock = threading.Lock()
@@ -325,14 +332,14 @@ class Multi(BaseMulti):
 		if callback == None:
 			callback = self.deal
 		if self.__single_thread_for_feedback:
-			callback = CallBack(callback, self.single_thread_container)
+			callback = CallBack(callback, self.queue)
 		self.initobjs.append([func,attrs,remain,callback])
 
 	def __inner_push(self,func, args = [], remain = None, callback = None):
 		if callback == None:
 			callback = self.deal
 		if self.__single_thread_for_feedback:
-			callback = CallBack(callback, self.single_thread_container)
+			callback = CallBack(callback, self.queue)
 		if len(self.__wait_urls[-1])>= self.container_size:
 			self.__wait_urls.append([])
 		if type(args) == dict:
@@ -374,8 +381,17 @@ class Multi(BaseMulti):
 		main_thread.start()
 		self.__main_thread = main_thread
 		return self.__on_running
-
+	def renew(self):
+		if self.__on_running:
+			print("You can not call this funcion when the thread is running!")
+			print(" the thread is on running, wait until it done or call poweroff() to stop it")
+			print(" call done() to check if the thread is done")
+			return
+		self.__mark_work = False
 	def work(self,asyn = True):
+		if self.__mark_work:
+			print("This function is already running or done run, to recall this, you should call function renew() first")
+		self.__mark_work = True
 		if asyn:
 			return self.start()
 		else:
@@ -423,20 +439,37 @@ class Multi(BaseMulti):
 		out = self.inner_run()
 		self.__on_running=False
 		return out
-
+	def has_something(self):
+		return False
+	def do_something(self):
+		print "next run"
+	def __has_something(self):
+		if self.has_something():
+			return True 
+		if len(self.__threads) > 0:
+			return True
+		if self.__single_thread_for_feedback:
+			if not self.queue.empty():
+				return True 
+		return len(self.__run_urls) + len(self.__wait_urls[-1]) + len(self.__threads) > 0 or len(self.__wait_urls) > 1
+	def shows(self,s):
+		if mark_shows:
+			print "\n\n\n@@@@@@@@@@@@@@@@@@@@@@@@@@@\n\n\n"+s+"\n\n\n@@@@@@@@@@@@@@@@@@@@@@@@@@@n\n\n"
 	def inner_run(self):
 		self.__initz()
 		self.__threads = []
 		global sleep_time
 		#cnt=0
-		while self.has_something() and not self.__stop:
+		while self.__has_something() and not self.__stop:
+			self.shows("next run") 
+			self.do_something()
 			cls_cnt=0
 			if len(self.__run_urls) == 0:
 				if self.sleep_time is not None:
 					time.sleep(self.sleep_time)
 				else:
 					time.sleep(sleep_time)
-				
+			self.shows( "try __run_urls")
 			for obj in self.__run_urls:
 				if self.seperate_time>0:
 					if self.show:
@@ -467,16 +500,40 @@ class Multi(BaseMulti):
 							time.sleep(sleep_time)
 					if newthread is not None:
 						self.__threads.append(newthread)
+			self.shows( "done __run_urls")
 			with self.__lock:
 				self.change_run_urls()
+			self.shows( "done change_run_urls")
 			self.clear_threads()
+			self.shows( "done clear_threads")
+
+			if self.__single_thread_for_feedback:
+				cobj = self.queue.pop()
+				self.cobj = cobj
+				while cobj is not None:
+					callback,response,remain,succeed = cobj 
+					try:
+						callback(response,remain,succeed)
+					except Exception,e:
+						if self.show:
+							print("callback error:",e,e.message)
+							try:
+								import traceback
+								traceback.print_exc()
+							except:
+								print("Can't use module traceback to show details")
+					cobj = self.queue.pop()
+					self.cobj = cobj
+			self.shows( "done __single_thread_for_feedback")
+		self.shows( "DONE RUNNING")
 		while len(self.__threads)>0:
 			th=self.__threads[0]
 			th.join()
 			if th.done():
 				self.__threads.pop(0)
 		if self.__single_thread_for_feedback:
-			self.single_thread_container.shutdown()
+			self.queue.clean()
+		self.shows( "DONE CLEAR")
 		try:
 			return self.output()
 		except Exception, e:

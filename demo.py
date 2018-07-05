@@ -76,6 +76,16 @@ robots check
 
 python
 from multi import demo 
+url = "https://www.cnblogs.com/wangshuyi/p/6734523.html"
+keys = demo.keys(url,30)
+lnks = []
+lnks.append([u'http://book.zongheng.com/book/144244.html',1.0])
+fc_sim = demo.Sim(keys)
+spd = demo.Demo(lnks,fc_sim)
+spd.show=False
+spd.work(asyn=True)
+
+
 keys = []
 words = u"恐怖小说,恐怖,惊悚,  鬼, 尸体, 死亡, 小说"
 values = [     0.5, 0.1, 0.1, 0.1,  0.1,  0.1,  0.1]
@@ -99,23 +109,34 @@ spd = demo.Demo(lnks,fc_sim)
 spd.work(asyn=True)
 
 """
-from spider import robots,url_base
+from spider import robots,url_base,cut
+def keys(url, num = 10):
+	import requests 
+	rp = requests.get(url)
+	url_base.rq_encode(rp)
+	html = rp.text
+	cts = cut.contents(html)
+	rstkeys = cut.tf_idfs(cts,num)
+	return rstkeys
 class Sim(object):
 	# key_words: list of [word,value]
-	def __init__(self,key_words):
+	def __init__(self,key_words, alpha = 0.0001):
 		self.key_words = key_words
+		self.alpha = alpha
 	def __call__(self,contents):
 		l = len(contents)
-		rst = 0.0
+		l = l>>1
+		l = 1.0 / l
+		rst = 1.0
 		keys = self.key_words 
 		for k in keys:
 			key = k[0]
 			c = contents.count(key)
-			n = 1.0 * c / l 
-			rst += n * k[1]
+			n = 1.0 * c * l 
+			rst *= (n * k[1] + self.alpha)
 		return rst 
 class Demo(multi.Multi):
-	def __init__(self,lnks_with_weight,fc_sim):
+	def __init__(self,lnks_with_weight,fc_sim, weight_remain = 0.5):
 		multi.Multi.__init__(self, True)
 		self.urls = lnks_with_weight[:]
 		self.sim=fc_sim 
@@ -128,30 +149,43 @@ class Demo(multi.Multi):
 		self.deal_urls = 100
 		self.total_urls = 3000
 		self.robots = robots.Robots()
+		self.weight_remain = weight_remain
 		for url in self.urls:
 			parm = self.attrs([url[0]],{})
 			self.init_push(requests.get,parm,url[1],self.deal)
 	def check_urls(self):
 		if len(self.urls) < self.deal_urls:
-			return 
+			#print "empty in check_urls"
+			pass 
 		self.urls.sort(key=lambda x:x[1], reverse=True)
-		for i in xrange(self.push_urls ):
+		l = min(len(self.urls), self.push_urls)
+		for i in xrange(l):
 			urlobj = self.urls[i] 
-			parm=self.attrs([urlobj[0]],{'headers':url_base.header(urlobj[0])})
+			url = urlobj[0]
+			parm=self.attrs([url],{'headers':url_base.header(url)})
 			self.push(requests.head,parm,urlobj[1],self.deal)
+			#print "		check url push head",urlobj[0]
+			#self.waitset.add(url)
+		self.urls = self.urls[l:]
 		if len(self.urls) > self.max_container_urls:
+			for urlboj in self.urls[self.max_container_urls:]:
+				url  =urlobj[0]
+				if url in self.waitset:
+					self.waitset.remove(url)
 			self.urls = self.urls[:self.max_container_urls]
 	def deal(self, response, remain, succeed):
 		if not succeed:
 			print "failed to get url:",response 
 			return 
 		url = response.url 
-		#if url in self.set:
-		#	return
+		print "deal on ",url
+		if url in self.set:
+			return
 		method = response.request.method # 'HEAD', 'GET', 'POST', ...
 		if method == 'HEAD':
 			ct_type = response.headers['Content-Type']
-			if ct_type != 'text/html':
+			if ct_type.lower().find('text/html')<0 :
+				print "not text/html:",ct_type
 				return 
 			parm=self.attrs([url],{'headers':url_base.header(url)})
 			self.push(requests.get,parm,remain,self.deal)
@@ -162,19 +196,33 @@ class Demo(multi.Multi):
 		url_base.rq_encode(response)
 		self.check_urls()
 		self.set.add(url)
+		self.waitset.add(url)
 		text = response.text
 		sim = self.sim(text)
 		self.done_urls.append([url,sim])
-		if len(self.set)>self.total_urls:
+		if len(self.done_urls)>self.total_urls:
 			print "catched enough url:", len(self.set)
 			return 
-		chd_sim = remain + sim 
+		chd_sim = self.weight_remain * remain + sim 
 		urls = url_base.html2urls(text, url)
+		#print "len urls:",len(urls)
+		cnt = 0
 		for turl in urls:
 			if not url_base.maybe_html(turl) or turl in self.waitset or not self.robots.allow(turl):
+				if not url_base.maybe_html(turl):
+					#print "mabe not url:",turl 
+					pass 
+				if not self.robots.allow(turl):
+					#print "robots not allow:",turl
+					pass
 				continue 
+			#self.waitset.add(turl)
+			#if len(self.urls) > self.max_container_urls:
+			#	continue 
+			cnt += 1
 			self.waitset.add(turl)
 			self.urls.append([turl,chd_sim])
+		#print "push count:",cnt
 		self.check_urls()
 	def output(self):
 		print "DONE WORK"
