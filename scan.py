@@ -8,9 +8,9 @@ python
 from multi import scan 
 from testz.test import time
 s = scan.TCPScan('172.0.0.0/20',22)
-s = scan.TCPScan('182.0.0.0/12',22)
-s.mark_shows = False 
 s = scan.TCPScan('192.168.0.1/19',22)
+s = scan.TCPScan('125.71.215.223/16',22)
+s.mark_shows = False 
 ips = time(s.work,False)[0]
 ssh = scan.SSHScan(ips)
 ssh.mark_shows = False 
@@ -122,10 +122,11 @@ def i2s(ip):
 # ip: addr/mark_size
 # 
 
-
+timeout = 1.5
 def tcp_open(ip,port):
+	global timeout
 	server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-	server.settimeout(5.0)
+	server.settimeout(timeout)
 	try:
 		server.connect((ip,port))
 		return True
