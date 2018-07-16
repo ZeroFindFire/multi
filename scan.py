@@ -99,6 +99,35 @@ class TCPScan(multi.Multi):
 	def output(self):
 		return self.opens
 
+class TCPPortScan(multi.Multi):
+	def __init__(self, ip, ports, loop_size = -1):
+		super(TCPPortScan,self).__init__(True)
+		size = len(ports)
+		self.size = size
+		self.ip = ip
+		self.ports = ports 
+		if loop_size > 0:
+			size = min(loop_size,size)
+		for i in xrange(size):
+			port = ports[i]
+			attrs = self.attrs([ip, port])
+			self.init_push(tcp_open, attrs, port)
+		self.index = i + 1
+		self.opens =[]
+	def deal(self, response, remain, succeed):
+		if self.index < self.size:
+			port = self.ports[self.index]
+			attrs = self.attrs([self.ip,port])
+			self.push(tcp_open,attrs,port)
+			self.index += 1
+		if not succeed:
+			print "error in tcp_open port:",remain 
+			return 
+		if response:
+			self.opens.append(remain)
+	def output(self):
+		return self.opens
+
 def s2i(ip):
 	ips = ip.strip().split('.')
 	i_ip = 0 

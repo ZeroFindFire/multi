@@ -339,7 +339,7 @@ class LinearContainer(object):
 		self.multi.pushs(self.ct)
 		self.ct = []
 class Multi(BaseMulti):
-	mark_shows = True
+	mark_shows = False
 	def __init__(self, single_thread_for_feedback = False):
 		self.__mark_work = False
 		self.__on_running = False
