@@ -330,7 +330,7 @@ class LinearContainer(object):
 	def __init__(self, multi):
 		self.multi = multi 
 		self.ct = []
-		self.push = self.add
+		self.push = self.add 
 	def add(self,func, attrs, remain = None, callback = None):
 		self.ct.append([func,attrs,remain,callback])
 	def commit(self):
