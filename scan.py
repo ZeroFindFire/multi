@@ -10,6 +10,7 @@ from testz.test import time
 s = scan.TCPScan('172.0.0.0/20',22)
 s = scan.TCPScan('192.168.0.1/19',22)
 s = scan.TCPScan('125.71.215.223/16',22)
+wx:101.227.160.102
 s.mark_shows = False 
 ips = time(s.work,False)[0]
 ssh = scan.SSHScan(ips)
@@ -19,19 +20,20 @@ logins = time(ssh.work,False)[0]
 
 """
 class SSHScan(multi.Multi):
-	def __init__(self, ips, user = 'root', pwd = 'jcb410', loop_size = -1):
+	def __init__(self, ips, user = 'root', pwds = ['123456'], loop_size = -1):
 		super(SSHScan,self).__init__(True)
 		size = len(ips)
 		self.size = size
 		self.user = user 
-		self.pwd = pwd 
+		self.pwds = pwds 
 		self.ips = ips 
 		if loop_size > 0:
 			size = min(loop_size,size)
 		for i in xrange(size):
 			ip = ips[i]
-			attrs = self.attrs([ip,user,pwd])
-			self.init_push(ssh_check, attrs, ip)
+			for pwd in pwds:
+				attrs = self.attrs([ip,user,pwd])
+				self.init_push(ssh_check, attrs, [ip,pwd])
 		self.index = i + 1
 		self.logins =[]
 	def deal(self, response, remain, succeed):
@@ -97,10 +99,13 @@ class TCPScan(multi.Multi):
 		if response:
 			self.opens.append(remain[0])
 	def output(self):
+		print "done"
 		return self.opens
 
 class TCPPortScan(multi.Multi):
-	def __init__(self, ip, ports, loop_size = -1):
+	def __init__(self, ip, ports, max_threads = -1, loop_size = -1):
+		if max_threads>0:
+			self.max_threads = max_threads
 		super(TCPPortScan,self).__init__(True)
 		size = len(ports)
 		self.size = size
@@ -123,6 +128,9 @@ class TCPPortScan(multi.Multi):
 		if not succeed:
 			print "error in tcp_open port:",remain 
 			return 
+		#print "port ",remain,":",response
+		if remain == 443:
+			print 'ip:',self.ip,'port:',remain,'check:',tcp_open(self.ip, remain)
 		if response:
 			self.opens.append(remain)
 	def output(self):
