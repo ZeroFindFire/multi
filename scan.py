@@ -46,7 +46,7 @@ class SSHScan(multi.Multi):
 			print "error in ssh_check:",remain 
 			return 
 		if response:
-			self.logins.append(remain)
+			self.logins.append(remain) 
 	def output(self):
 		return self.logins
 
