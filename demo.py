@@ -74,18 +74,18 @@ robots check
 """
 
 s = """
+主题爬虫 0.531058550601
 爬虫 0.322882357397
-url 0.23752647481
-广度 0.131058550601
-深度 0.131058550601
-deepth 0.128684257297
-seeds 0.128684257297
+主题 0.322882357397
+算法 0.322882357397
+python 0.23752647481
+simhash 0.172105543783
+url 0.0752647481
 种子 0.128684257297
 优先 0.11266019461
-抓取 0.096978431194
-http 0.090078980108
-队列 0.0822981462228
 HTML 0.0772105543783
+Shark 0.0772105543783
+fish 0.0772105543783
 """
 
 """
@@ -111,7 +111,9 @@ for s in sr:
 
 
 lnks = []
-lnks.append([u'http://book.zongheng.com/book/144244.html',1.0])
+lnks.append([u'http://book.zongheng.com/book/144244.html',0.01])
+lnks.append([u'https://www.cnblogs.com/wangshuyi/p/6734523.html',0.5])
+lnks.append([u'https://blog.csdn.net/u011955252/article/details/50498234',0.5])
 fc_sim = demo.Sim(keys)
 spd = demo.Demo(lnks,fc_sim)
 spd.show=False
@@ -160,17 +162,26 @@ class Sim(object):
 		self.alpha = alpha
 	def __call__(self,contents):
 		l = len(contents)
-		l = l>>1
+		l = l + 1
 		l = 1.0 / l
-		rst = 1.0
+		rst = 0.0
 		keys = self.key_words 
 		for k in keys:
 			key = k[0]
 			c = contents.count(key)
+			c = 1.0 * c 
+			c = c ** 1.5
 			n = 1.0 * c * l 
-			rst *= (n * k[1] + self.alpha)
+			rst += n * k[1]
 		return rst 
 class Demo(multi.Multi):
+	def log(self, *attrs):
+		if not self.show_spd:
+			return 
+		s = ""
+		for a in attrs:
+			s+= str(a)+" "
+		return s[:-1]
 	def __init__(self,lnks_with_weight,fc_sim, weight_remain = 0.5):
 		multi.Multi.__init__(self, True)
 		self.urls = lnks_with_weight[:]
@@ -191,19 +202,26 @@ class Demo(multi.Multi):
 			parm = self.attrs([url[0]],{})
 			self.init_push(requests.get,parm,url[1],self.deal)
 	def check_urls(self):
+		self.cstate = 0
 		if self.on_running_count > self.deal_urls:
 			mx_len = self.push_urls+self.max_container_urls
 			if len(self.urls) > mx_len*2:
 				self.urls.sort(key=lambda x:x[1], reverse=True)
-				if self.show_spd:
-					print "check_urls cut",len(self.urls),"to",mx_len
+				self.log( "check_urls cut",len(self.urls),"to",mx_len)
 				self.urls = self.urls[:mx_len]
-			if self.show_spd:
-				print "check_urls too many in run:",self.on_running_count
+			self.log( "check_urls too many in run:",self.on_running_count)
+			self.cstate = -1
 			return 
+		self.cstate = 1
 		self.urls.sort(key=lambda x:x[1], reverse=True)
+		self.cstate = 2
 		l = min(len(self.urls), self.push_urls)
+		if l == 0:
+			self.cstate = -2
+			return 
+		self.cstate = 3
 		manager = self.manager()
+		self.cstate = 4
 		for i in xrange(l):
 			urlobj = self.urls[i] 
 			url = urlobj[0]
@@ -211,109 +229,122 @@ class Demo(multi.Multi):
 			parm=self.attrs([url],{'headers':url_base.header(uhost)})
 			manager.push(requests.head,parm,urlobj[1],self.deal)
 			self.on_running_count+=1
-			#print "		check url push head",urlobj[0]
-			#self.waitset.add(url)
+		self.cstate = 5
 		manager.commit()
-		if self.show_spd:
-			print "done push ",l," requests.head",len(self.urls)
+		self.cstate = 6
+		self.log( "done push ",l," requests.head",len(self.urls))
 		self.urls = self.urls[l:]
-		if self.show_spd:
-			print "current url lens:",len(self.urls)
+		self.log("current url lens:",len(self.urls))
+		self.cstate = 7
 		if len(self.urls) > self.max_container_urls:
-			if self.show_spd:
-				print "do remove from set:",self.max_container_urls,len(self.urls),len(self.urls)-self.max_container_urls
+			self.log("do remove from set:",self.max_container_urls,len(self.urls),len(self.urls)-self.max_container_urls)
+			self.cstate = 8
+			self.ccstate = 0
 			for urlboj in self.urls[self.max_container_urls:]:
+				self.ccstate+=1
 				url  =urlobj[0]
 				if url in self.waitset:
 					self.waitset.remove(url)
+			self.ccstate = -1
+			self.cstate = 9
 			self.urls = self.urls[:self.max_container_urls]
-			if self.show_spd:
-				print "done remove from set"
-		if self.show_spd:
-			print "finish check_urls",len(self.urls)
+			self.log("done remove from set")
+		self.cstate = 10
+		self.log("finish check_urls",len(self.urls))
+		self.cstate = 11
 	def robots_deal(self,response,remain,succeed):
+		self.tstate = 'r'
+		self.rstate = 0
 		url,chd_sim,lurls, count_obj = remain
 		count_obj[0]+=1
+		self.rstate = 1
 		if response == True:
 			self.waitset.add(url)
 			self.urls.append([url,chd_sim])
+		self.rstate = 2
 		self.check_urls()
-		return 
-		if count_obj[0] == lurls:
-			self.check_urls()
-			if self.show_spd:
-				print "finish check_urls"
-		elif random.random() > 0.9:
-			self.check_urls()
+		self.rstate = 3
 	def deal(self, response, remain, succeed):
+		self.tstate = 'd'
+		self.dstate = 0
 		self.on_running_count-=1
 		if not succeed:
-			if self.show_spd:
-				print "failed to get url:",response 
+			self.log("failed to get url:",response)
+			self.dstate = -1
 			return 
+		self.dstate = 1
 		url = response.url 
-		if self.show_spd:
-			print "deal on ",url
+		self.log("deal on ",url)
 		if url in self.set:
+			self.dstate = -2
 			return
+		self.dstate = 2
 		method = response.request.method # 'HEAD', 'GET', 'POST', ...
+		self.dstate = 3
 		if method == 'HEAD':
+			self.dstate = 4
 			ct_type = response.headers['Content-Type']
 			if ct_type.lower().find('text/html')<0 :
-				if self.show_spd:
-					print "not text/html:",ct_type
+				self.log("not text/html:",ct_type)
+				self.dstate = -3
 				return 
 			uhost = url_base.http_base(url)
 			parm=self.attrs([url],{'headers':url_base.header(uhost)})
 			self.push(requests.get,parm,remain,self.deal)
 			self.on_running_count+=1
-			if self.show_spd:
-				print "finish head ",url
+			self.log("finish head ",url)
+			self.dstate = -4
 			return 
 		elif method == '':
-			if self.show_spd:
-				print "error request.method in here:",url 
+			self.dstate = 5
+			self.log("error request.method in here:",url )
+			self.dstate = -5
 			return 
+		self.dstate = 6
 		url_base.rq_encode(response)
+		self.dstate = 7
 		self.check_urls()
+		self.dstate = 8
 		self.set.add(url)
+		self.dstate = 9
 		self.waitset.add(url)
+		self.dstate = 10
 		text = response.text
 		sim = self.sim(text)
+		self.dstate = 11
 		self.done_urls.append([url,sim])
+		self.dstate = 12
 		if len(self.done_urls)>self.total_urls:
 			print "catched enough url:", len(self.set)
+			self.dstate = -6
 			return 
 		chd_sim = self.weight_remain * remain + sim 
+		self.dstate = 13
 		urls = url_base.html2urls(text, url)
-		if self.show_spd:
-			print "urls in ",url,": ",len(urls)
-		#cnt = 0
+		self.dstate = 14
+		self.log("urls in ",url,": ",len(urls))
 		lurls = len(urls)
-		#for turl in urls:
 		count_object = [0]
+		self.dstate = 15
+		self.ddstate = 0
+		self.dddstate = 0
 		for i in xrange(lurls):
 			turl = urls[i]
+			self.dddstate = 1
+			self.ddstate += 1
 			if not url_base.maybe_html(turl) or turl in self.waitset:
+				self.dddstate = 4
 				if not url_base.maybe_html(turl):
-					#print "mabe not url:",turl 
 					pass 
 				if not self.robots.allow(turl):
-					#print "robots not allow:",turl
 					pass
 				continue 
+			self.dddstate = 2
 			self.push(self.robots.allow,self.attrs([turl]),[turl, chd_sim,lurls,count_object],self.robots_deal)
-			continue
-			if  not self.robots.allow(turl):
-				pass
-			#self.waitset.add(turl)
-			#if len(self.urls) > self.max_container_urls:
-			#	continue 
-			self.waitset.add(turl)
-			self.urls.append([turl,chd_sim])
-		#print "push count in url",url,":",cnt
-		if self.show_spd:
-			print "finish get ",url
+			self.dddstate = 3
+		self.ddstate = -1
+		self.dstate = 16
+		self.log("finish get ",url)
 	def output(self):
 		self.on_running_count = 0
 		print "DONE WORK"

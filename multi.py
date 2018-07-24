@@ -134,6 +134,7 @@ class SingleThread(threading.Thread):
 			lst = attrs[0]
 			order = "none"
 			#print "lst:",lst
+			remove_script="""
 			if len(maps) == 0:
 				rp = func(*lst)
 			else:
@@ -144,7 +145,8 @@ class SingleThread(threading.Thread):
 					order += ""+key+"=maps['"+key+"'], "
 				order = order[:-1]
 				order+=")"
-				exec(order)
+				exec(order)"""
+			rp = func(*lst, **maps)
 			succeed = True
 		except Exception,e:
 			if self.show:
@@ -220,10 +222,11 @@ class ThreadSafeQueue(object):
 			if self.size > 0:
 				with self.__lock:
 					num = len(self.products)
-				if num >= self.size:
+				while num >= self.size:
 					self.waiting += 1
 					self.product_ct.wait()
 					self.waiting -= 1
+					num = len(self.products)
 			if not self.accept:
 				return 
 			with self.__lock:
@@ -239,9 +242,10 @@ class ThreadSafeQueue(object):
 			with self.__lock:
 				num = len(self.products)
 			if num == 0:
-				return None 
-			with self.__lock:
-				obj = self.products.pop()
+				obj = None
+			else:
+				with self.__lock:
+					obj = self.products.pop()
 		with self.product_ct:
 			self.product_ct.notify()
 		return obj 
@@ -274,16 +278,24 @@ class SingleFeedback(threading.Thread):
 		self.queue.init()
 		self.has_obj = True
 	def run(self):
+		self.state = 0
 		with self.__ct:
 			self.running = True 
 			self.__shutdown = False
 		obj = None
+		self.state = 1
 		while self.running:
+			self.state = 2
 			with self.__ct:
+				self.state = 2.5
 				obj = self.queue.pop()
+				self.state = 2.6
 				self.has_obj = obj is not None
+				self.state = 2.7
+			self.state = 3
 			if obj is None:
 				continue
+			self.state = 4
 			callback,response,remain,succeed = obj 
 			self.tmp = obj
 			try:
@@ -296,10 +308,14 @@ class SingleFeedback(threading.Thread):
 						traceback.print_exc()
 					except:
 						print("Can't use module traceback to show details")
+			self.state = 5
+		self.state = 6
 		self.queue.clean()
+		self.state = 7
 		with self.__ct:
 			self.__shutdown = True
 			self.__ct.notify()
+		self.state = 8
 	def empty(self):
 		with self.__ct:
 			if self.has_obj:
@@ -530,22 +546,30 @@ class Multi(BaseMulti):
 			self.__threads.append(newthread)
 		return True 
 	def inner_run(self):
+		self.state = 0
 		self.__initz()
 		self.__threads = []
 		global sleep_time
 		#cnt=0
+		self.state = 1
 		while self.__has_something() and not self.__stop:
+			self.state = 2
 			if len(self.__run_urls) == 0:
 				if self.sleep_time is not None:
 					time.sleep(self.sleep_time)
 				else:
 					time.sleep(sleep_time)
+			self.state = 3
 			self.shows("next run") 
 			self.do_something()
 			cls_cnt=0
 			self.shows( "try __run_urls")
+			self.state = 4
+			self.count_state = 0
 			for obj in self.__run_urls:
+				self.state = 4.4
 				while self.build_thread(obj) == False:
+					self.state = 4.5
 					active_counts = self.clear_threads()
 					cls_cnt = 0
 					if active_counts > self.max_threads:
@@ -555,26 +579,34 @@ class Multi(BaseMulti):
 							time.sleep(self.sleep_time)
 						else:
 							time.sleep(sleep_time)
+					self.state = 4.6
 				cls_cnt += 1
+				self.state = 4.7
 				if cls_cnt>=self.max_threads:
 					self.clear_threads()
 					cls_cnt=0
+				self.count_state += 1
+				self.state = 4.9
+			self.state = 5
 			self.shows( "done __run_urls")
 			with self.__lock:
 				self.change_run_urls()
+			self.state = 6
 			self.shows( "done change_run_urls")
 			count_running = self.clear_threads()
 			self.shows( "done clear_threads")
-			
+		self.state = 7
 		self.shows( "DONE RUNNING")
 		if self.__single_thread_for_feedback:
 			self.single_thread_container.shutdown()
+		self.state = 8
 		while len(self.__threads)>0:
 			th=self.__threads[0]
 			th.join()
 			if th.done():
 				self.__threads.pop(0)
 		self.shows( "DONE CLEAR")
+		self.state = 9
 		try:
 			return self.output()
 		except Exception, e:
@@ -584,6 +616,7 @@ class Multi(BaseMulti):
 				traceback.print_exc()
 			except:
 				print("Can't use module traceback to show details") 
+		self.state = 10
 		return None
 
 
