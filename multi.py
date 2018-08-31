@@ -298,9 +298,13 @@ class SingleFeedback(threading.Thread):
 			self.state = 4
 			callback,response,remain,succeed = obj 
 			self.tmp = obj
+			self.state = 4.3
 			try:
+				self.state = 4.5
 				callback(response,remain,succeed)
+				self.state = 4.7
 			except Exception,e:
+				self.state = 4.9
 				if self.multi.show:
 					print("callback error:",e,e.message)
 					try:
@@ -392,7 +396,7 @@ class Multi(BaseMulti):
 				attrs = self.attrs() if len(urlobj) <2 else urlobj[1]
 				remain = None if len(urlobj)<3 else urlobj[2]
 				callback = None if len(urlobj)<4 else urlobj[3]
-			Multi.push(self, func, attrs, remain, callback)
+			Multi.__inner_push(self, func, attrs, remain, callback)
 		self.change_run_urls()
 
 	def init_objs(self):
@@ -401,8 +405,8 @@ class Multi(BaseMulti):
 	def init_push(self, func, attrs, remain = None, callback = None):
 		if callback == None:
 			callback = self.deal
-		if self.__single_thread_for_feedback:
-			callback = CallBack(callback, self.single_thread_container)
+		#if self.__single_thread_for_feedback:
+		#	callback = CallBack(callback, self.single_thread_container)
 		self.initobjs.append([func,attrs,remain,callback])
 
 	def __inner_push(self,func, args = [], remain = None, callback = None):
@@ -460,8 +464,9 @@ class Multi(BaseMulti):
 			print("You can not call this funcion when the thread is running!")
 			print(" the thread is on running, wait until it done or call poweroff() to stop it")
 			print(" call done() to check if the thread is done")
-			return
+			return False 
 		self.__mark_work = False
+		return True 
 	def work(self,asyn = True):
 		if self.__mark_work:
 			print("This function is already running or done run, to recall this, you should call function renew() first")

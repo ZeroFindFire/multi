@@ -119,6 +119,7 @@ class TCPPortScan(multi.Multi):
 			self.init_push(tcp_open, attrs, port)
 		self.index = i + 1
 		self.opens =[]
+		self.dones = []
 	def deal(self, response, remain, succeed):
 		if self.index < self.size:
 			port = self.ports[self.index]
@@ -129,8 +130,9 @@ class TCPPortScan(multi.Multi):
 			print "error in tcp_open port:",remain 
 			return 
 		#print "port ",remain,":",response
-		if remain == 443:
+		if remain in [80, 443]:
 			print 'ip:',self.ip,'port:',remain,'check:',tcp_open(self.ip, remain)
+		self.dones.append(remain)
 		if response:
 			self.opens.append(remain)
 	def output(self):
