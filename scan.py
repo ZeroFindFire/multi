@@ -61,35 +61,49 @@ def ssh_check(ip, user, pwd):
 		return False
 	finally: 
 		ssh.close()
+def ips(base, last):
+	base = s2i(base)
+	last = s2i(last)
+	rst = range(base, last+1)
+	return rst 
+
+def ips_mark(ip):
+	addr,mark = ip.strip().split("/")
+	if mark == '':
+		return [addr]
+	i_mark = int(mark)
+	i_addr = s2i(addr)
+	i_nomark = 32 - i_mark 
+	mark = 0xffffffff 
+	mark = (mark >> i_nomark)<<i_nomark
+	base_ip = i_addr & mark 
+	size = 1 << i_nomark
+	rst = []
+	for i in xrange(size):
+		ip = base_ip + i 
+		ip = i2s(ip)
+		rst.append(ip)
+	return rst 
+
 class TCPScan(multi.Multi):
-	def __init__(self, ip, port, loop_size = -1, single_thread_for_feedback = True):
+	def __init__(self, ips, port, loop_size = -1, single_thread_for_feedback = True):
 		super(TCPScan,self).__init__(single_thread_for_feedback)
 		self.init_objs()
-		addr,mark = ip.strip().split("/")
-		i_mark = int(mark)
-		i_addr = s2i(addr)
-		i_nomark = 32 - i_mark 
-		mark = 0xffffffff 
-		mark = (mark >> i_nomark)<<i_nomark
-		base_ip = i_addr & mark 
-		size = 1 << i_nomark
-		print "szie:",size
-		self.base_ip = base_ip 
-		self.size = size
+		self.ips = ips 
+		self.size = len(ips)
 		self.port = port
+		size = self.size
 		if loop_size > 0:
 			size = min(loop_size,size)
 		for i in xrange(size):
-			ip = base_ip + i 
-			ip = i2s(ip)
+			ip = self.ips[i]
 			attrs = self.attrs([ip,port])
 			self.init_push(tcp_open, attrs, [ip, port])
 		self.index = i + 1
 		self.opens = []
 	def deal(self, response, remain, succeed):
 		if self.index < self.size:
-			ip = self.base_ip + self.index 
-			ip = i2s(ip)
+			ip = self.ips[self.index ]
 			attrs = self.attrs([ip,self.port])
 			self.push(tcp_open,attrs,[ip,self.port])
 			self.index += 1
@@ -190,3 +204,44 @@ print stdout.read()
 ssh.close()
 """
 
+
+class TCPScan_backup(multi.Multi):
+	def __init__(self, ip, port, loop_size = -1, single_thread_for_feedback = True):
+		super(TCPScan,self).__init__(single_thread_for_feedback)
+		self.init_objs()
+		addr,mark = ip.strip().split("/")
+		i_mark = int(mark)
+		i_addr = s2i(addr)
+		i_nomark = 32 - i_mark 
+		mark = 0xffffffff 
+		mark = (mark >> i_nomark)<<i_nomark
+		base_ip = i_addr & mark 
+		size = 1 << i_nomark
+		print "szie:",size
+		self.base_ip = base_ip 
+		self.size = size
+		self.port = port
+		if loop_size > 0:
+			size = min(loop_size,size)
+		for i in xrange(size):
+			ip = base_ip + i 
+			ip = i2s(ip)
+			attrs = self.attrs([ip,port])
+			self.init_push(tcp_open, attrs, [ip, port])
+		self.index = i + 1
+		self.opens = []
+	def deal(self, response, remain, succeed):
+		if self.index < self.size:
+			ip = self.base_ip + self.index 
+			ip = i2s(ip)
+			attrs = self.attrs([ip,self.port])
+			self.push(tcp_open,attrs,[ip,self.port])
+			self.index += 1
+		if not succeed:
+			print "error in tcp_open:",remain 
+			return 
+		if response:
+			self.opens.append(remain[0])
+	def output(self):
+		print "done"
+		return self.opens
