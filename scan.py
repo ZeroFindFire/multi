@@ -32,14 +32,14 @@ class SSHScan(multi.Multi):
 		for i in xrange(size):
 			ip = ips[i]
 			for pwd in pwds:
-				attrs = self.attrs([ip,user,pwd])
+				attrs = self.attrs(ip,user,pwd)
 				self.init_push(ssh_check, attrs, [ip,pwd])
 		self.index = i + 1
 		self.logins =[]
 	def deal(self, response, remain, succeed):
 		if self.index < self.size:
 			ip = self.ips[self.index]
-			attrs = self.attrs([ip,self.user, self.pwd])
+			attrs = self.attrs(ip,self.user, self.pwd)
 			self.push(ssh_check,attrs,ip)
 			self.index += 1
 		if not succeed:
@@ -97,14 +97,14 @@ class TCPScan(multi.Multi):
 			size = min(loop_size,size)
 		for i in xrange(size):
 			ip = self.ips[i]
-			attrs = self.attrs([ip,port])
+			attrs = self.attrs(ip,port)
 			self.init_push(tcp_open, attrs, [ip, port])
 		self.index = i + 1
 		self.opens = []
 	def deal(self, response, remain, succeed):
 		if self.index < self.size:
 			ip = self.ips[self.index ]
-			attrs = self.attrs([ip,self.port])
+			attrs = self.attrs(ip,self.port)
 			self.push(tcp_open,attrs,[ip,self.port])
 			self.index += 1
 		if not succeed:
@@ -129,7 +129,7 @@ class TCPPortScan(multi.Multi):
 			size = min(loop_size,size)
 		for i in xrange(size):
 			port = ports[i]
-			attrs = self.attrs([ip, port])
+			attrs = self.attrs(ip, port)
 			self.init_push(tcp_open, attrs, port)
 		self.index = i + 1
 		self.opens =[]
@@ -137,15 +137,15 @@ class TCPPortScan(multi.Multi):
 	def deal(self, response, remain, succeed):
 		if self.index < self.size:
 			port = self.ports[self.index]
-			attrs = self.attrs([self.ip,port])
+			attrs = self.attrs(self.ip,port)
 			self.push(tcp_open,attrs,port)
 			self.index += 1
 		if not succeed:
 			print "error in tcp_open port:",remain 
 			return 
 		#print "port ",remain,":",response
-		if remain in [80, 443]:
-			print 'ip:',self.ip,'port:',remain,'check:',tcp_open(self.ip, remain)
+		#if remain in [80, 443]:
+		#	print 'ip:',self.ip,'port:',remain,'check:',tcp_open(self.ip, remain)
 		self.dones.append(remain)
 		if response:
 			self.opens.append(remain)
@@ -204,7 +204,19 @@ print stdout.read()
 ssh.close()
 """
 
-
+def login(user, pwd ):
+    sdt = "IDToken0=&IDToken1="+user+"&IDToken2="+pwd+"&IDButton=Login&goto=aHR0cDovL2VoYWxsLnNjdS5lZHUuY24vYW1wLWF1dGgtYWRhcHRlci9sb2dpblN1Y2Nlc3M%2Fc2Vzc2lvblRva2VuPTEyZTI1YzA0ZGY5MDQyZmI5MGI2Njc2NDRlYTU4MWQ1&encoded=true&gx_charset=UTF-8"
+    dt = { s.split("=")[0]:s.split("=")[1] for s in sdt.split("&")}
+    url="http://ids.scu.edu.cn/amserver/UI/Login"
+    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/68.0.3440.106 Safari/537.36"
+    refer="http://ids.scu.edu.cn/amserver/UI/Login?goto=http%3A%2F%2Fehall.scu.edu.cn%2Famp-auth-adapter%2FloginSuccess%3FsessionToken%3D12e25c04df9042fb90b667644ea581d5"
+    import requests 
+    scks= "_ga=GA1.3.1550360472.1536808174; safedog-flow-item=B9DA3CED5A93251085B22BFDBB4ED018; JROUTE=JCDS; JSESSIONID=D749364A1BA6287698E718A693B1804C; AMAuthCookie=AQIC5wM2LY4SfcwlnkzhaKrDLc8cbBqtJtdzfoCWEannqwQ%3D%40AAJTSQACMDE%3D%23; amlbcookie=01"
+    cks = { s.split("=")[0].strip():s.split("=")[1].strip() for s in scks.split(";")}
+    headers = { 'User-Agent' : user_agent , 'Refere': refer}
+    response = requests.post(url, headers=headers, data = dt , cookies=cks)
+    return len(response.text)!=2112,response
+    return response
 class TCPScan_backup(multi.Multi):
 	def __init__(self, ip, port, loop_size = -1, single_thread_for_feedback = True):
 		super(TCPScan,self).__init__(single_thread_for_feedback)
